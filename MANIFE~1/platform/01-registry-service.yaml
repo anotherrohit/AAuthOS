@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: platform
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-service
+  namespace: platform
+  labels: { app: registry-service }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: registry-service }
+  template:
+    metadata:
+      labels: { app: registry-service }
+    spec:
+      containers:
+        - name: registry-service
+          image: aauth/registry-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9000
+              name: http
+          envFrom:
+            - configMapRef: { name: platform-config }
+          env:
+            - name: REGISTRY_DB_PATH
+              value: /data/registry.sqlite
+            - name: REGISTRY_LISTEN_HOST
+              value: "0.0.0.0"
+            - name: REGISTRY_LISTEN_PORT
+              value: "9000"
+            - name: BOOTSTRAP_TOKEN_TTL_SECONDS
+              value: "3600"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /healthz, port: 9000 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 9000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: registry-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry-service
+  namespace: platform
+spec:
+  type: NodePort
+  selector: { app: registry-service }
+  ports:
+    - port: 9000
+      targetPort: 9000
+      nodePort: 30090
+      name: http

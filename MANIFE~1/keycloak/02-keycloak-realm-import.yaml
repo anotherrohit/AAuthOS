@@ -1,0 +1,87 @@
+# Keycloak realm import for the demo. Same realm shape as the RadiantLogic
+# config — federated IdP points at the platform's agent JWKS aggregator, and
+# token-exchange (RFC 8693) is enabled with the four subject-token mappings.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-import
+  namespace: idp
+data:
+  aauth-realm.json: |
+    {
+      "realm": "aauth",
+      "enabled": true,
+      "displayName": "AAuth Demo Realm",
+      "sslRequired": "none",
+      "users": [
+        {
+          "username": "demo-user",
+          "enabled": true,
+          "email": "demo-user@example.com",
+          "credentials": [
+            { "type": "password", "value": "demo-pass", "temporary": false }
+          ],
+          "realmRoles": ["default-roles-aauth"]
+        }
+      ],
+      "clients": [
+        {
+          "clientId": "supply-chain-ui",
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "consentRequired": true,
+          "consentScreenText": "Allow agents to act on your behalf",
+          "redirectUris": ["http://localhost:3000/*"],
+          "webOrigins": ["http://localhost:3000"]
+        },
+        {
+          "clientId": "platform-token-exchange",
+          "publicClient": false,
+          "serviceAccountsEnabled": true,
+          "secret": "platform-token-exchange-secret",
+          "authorizationServicesEnabled": false
+        }
+      ],
+      "identityProviders": [
+        {
+          "alias": "aauth-platform-agents",
+          "providerId": "oidc",
+          "enabled": true,
+          "config": {
+            "issuer": "https://registry-service.platform.svc.cluster.local:9000",
+            "jwksUrl": "https://registry-service.platform.svc.cluster.local:9000/v1/agents/jwks.json",
+            "validateSignature": "true",
+            "useJwksUrl": "true"
+          }
+        }
+      ],
+      "attributes": {
+        "tokenExchange.enabled": "true",
+        "tokenExchange.acceptedSubjectTokenTypes": "urn:ietf:params:oauth:token-type:jwt",
+        "tokenExchange.issuedTokenTtlSeconds": "300"
+      },
+      "protocolMappers": [
+        {
+          "name": "mission-id-passthrough",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "claim.name": "mission_id",
+            "user.attribute": "mission_id",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "act-chain-extend",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "act",
+            "appendCallerToActChain": "true",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }

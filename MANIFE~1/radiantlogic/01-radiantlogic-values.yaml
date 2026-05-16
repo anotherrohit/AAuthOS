@@ -1,0 +1,47 @@
+# Helm values for the RadiantLogic IDM chart in the demo deployment.
+# Trims to a single-node setup suitable for KIND; not for production.
+
+image:
+  repository: registry.radiantlogic.com/idm
+  tag: "8.1.4"
+  pullPolicy: IfNotPresent
+  pullSecrets:
+    - rl-registry
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2
+    memory: 4Gi
+
+persistence:
+  enabled: true
+  storageClass: standard
+  size: 5Gi
+
+service:
+  type: NodePort
+  nodePort: 30808
+  port: 8080
+  tlsPort: 8443
+
+# Admin credentials for the demo only. Override in production.
+admin:
+  username: admin
+  password: admin
+
+# Realm + token-exchange config is applied separately via
+# 02-token-exchange-config.yaml so it can be reloaded without re-installing
+# the chart.
+realmImport:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: nginx
+  host: radiantlogic.aauth.local
+  tls: false

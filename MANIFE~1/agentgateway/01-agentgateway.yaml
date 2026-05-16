@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentgateway
+  namespace: gateway
+  labels: { app: agentgateway }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: agentgateway } }
+  template:
+    metadata:
+      labels: { app: agentgateway }
+    spec:
+      containers:
+        - name: agentgateway
+          # Replace with the upstream agentgateway image when available; this
+          # placeholder ships with a permissive policy and a /healthz endpoint
+          # for KIND validation.
+          image: ghcr.io/agentgateway/agentgateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { containerPort: 8080, name: http }
+            - { containerPort: 8443, name: https }
+            - { containerPort: 9100, name: admin }
+          env:
+            - name: AGENTGATEWAY_POLICY_PATH
+              value: /etc/agentgateway/policy.yaml
+            - name: REGISTRY_JWKS_URL
+              value: http://registry-service.platform.svc.cluster.local:9000/v1/agents/jwks.json
+            - name: IDP_JWKS_URL
+              valueFrom:
+                configMapKeyRef: { name: platform-config, key: IDP_JWKS_URL }
+          volumeMounts:
+            - name: policy
+              mountPath: /etc/agentgateway
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: policy
+          configMap:
+            name: agentgateway-policy
+            optional: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: gateway
+data:
+  # Re-shipped from platform/ so the gateway can read IDP_JWKS_URL without
+  # cross-namespace ConfigMap reads. Kept in sync by scripts/01 and 02.
+  IDP_FLAVOR: radiantlogic
+  IDP_JWKS_URL: https://radiantlogic.idp.svc.cluster.local:8443/oauth2/jwks
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentgateway-policy
+  namespace: gateway
+data:
+  # Empty starter policy. scripts/04-deploy-agentgateway.sh seeds this from
+  # registry-service /v1/policy/render once agents are registered.
+  policy.yaml: |
+    version: 1
+    agents: []
+    missions: { allowAny: true }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentgateway
+  namespace: gateway
+spec:
+  type: NodePort
+  selector: { app: agentgateway }
+  ports:
+    - { port: 8080, targetPort: 8080, name: http }
+    - { port: 8443, targetPort: 8443, nodePort: 30443, name: https }
+    - { port: 9100, targetPort: 9100, name: admin }

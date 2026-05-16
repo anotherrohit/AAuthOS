@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: apps
+  labels: { app: backend, aauth.io/registered: "true" }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: backend } }
+  template:
+    metadata:
+      labels: { app: backend, aauth.io/registered: "true" }
+    spec:
+      containers:
+        - name: backend
+          image: aauth/backend:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { containerPort: 8000, name: http }
+          env:
+            - name: AAUTH_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef: { name: backend-aauth-bootstrap, key: token }
+            - name: AAUTH_AGENT_ID_URL
+              valueFrom:
+                secretKeyRef: { name: backend-aauth-bootstrap, key: id_url }
+            - name: AAUTH_REGISTRY_URL
+              value: http://registry-service.platform.svc.cluster.local:9000
+            - name: AAUTH_MISSION_URL
+              value: http://mission-service.platform.svc.cluster.local:9001
+            - name: AAUTH_GATEWAY_URL
+              value: https://agentgateway.gateway.svc.cluster.local:8443
+            - name: SUPPLY_CHAIN_AGENT_ID_URL
+              value: https://platform.aauth.local/agents/supply-chain
+            - name: AAUTH_SIGNATURE_SCHEME
+              value: jwks
+          envFrom:
+            - configMapRef: { name: platform-config }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: apps
+spec:
+  type: NodePort
+  selector: { app: backend }
+  ports:
+    - { port: 8000, targetPort: 8000, nodePort: 30080, name: http }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: apps
+data:
+  # Mirrors platform-config in ns/platform. scripts/01 and 02 keep these in
+  # sync — agents read IDP_* values from here.
+  IDP_FLAVOR: radiantlogic
+  IDP_ISSUER_URL: https://radiantlogic.idp.svc.cluster.local:8443
+  IDP_TOKEN_EXCHANGE_URL: https://radiantlogic.idp.svc.cluster.local:8443/oauth2/token
+  IDP_JWKS_URL: https://radiantlogic.idp.svc.cluster.local:8443/oauth2/jwks

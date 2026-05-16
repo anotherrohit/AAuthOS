@@ -1,0 +1,26 @@
+# Copy to .env (gitignored) and adjust before running `make demo`.
+
+# IDP toggle (overridable inline: `make USE_KEYCLOAK=1 demo`)
+USE_KEYCLOAK=0
+
+# Cluster name — must match what scripts/00-kind-up.sh uses.
+CLUSTER_NAME=aauth-demo
+
+# Upstream demo to pull agent code from. Override to use a fork or branch.
+UPSTREAM_REPO=https://github.com/christian-posta/aauth-full-demo.git
+UPSTREAM_REF=main
+
+# RadiantLogic image registry (commercial — required for the RL path).
+# Leave blank to use Keycloak fallback instead.
+RL_REGISTRY_SERVER=registry.radiantlogic.com
+RL_REGISTRY_USER=
+RL_REGISTRY_PASS=
+RL_CHART=radiantlogic/idm
+RL_VERSION=8.1.4
+
+# Keycloak chart (Bitnami) version — bump as needed.
+KC_CHART=bitnami/keycloak
+KC_VERSION=21.6.1
+
+# Bootstrap token TTL on the registry service.
+BOOTSTRAP_TOKEN_TTL_SECONDS=3600

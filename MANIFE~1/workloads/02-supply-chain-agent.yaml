@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supply-chain-agent
+  namespace: apps
+  labels: { app: supply-chain-agent, aauth.io/registered: "true" }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: supply-chain-agent } }
+  template:
+    metadata:
+      labels: { app: supply-chain-agent, aauth.io/registered: "true" }
+    spec:
+      containers:
+        - name: supply-chain-agent
+          image: aauth/supply-chain-agent:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { containerPort: 9999, name: http }
+          env:
+            - name: AAUTH_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef: { name: supply-chain-aauth-bootstrap, key: token }
+            - name: AAUTH_AGENT_ID_URL
+              valueFrom:
+                secretKeyRef: { name: supply-chain-aauth-bootstrap, key: id_url }
+            - name: AAUTH_REGISTRY_URL
+              value: http://registry-service.platform.svc.cluster.local:9000
+            - name: AAUTH_GATEWAY_URL
+              value: https://agentgateway.gateway.svc.cluster.local:8443
+            - name: MARKET_ANALYSIS_AGENT_ID_URL
+              value: https://platform.aauth.local/agents/market-analysis
+            - name: AAUTH_SIGNATURE_SCHEME
+              value: jwks
+          envFrom:
+            - configMapRef: { name: platform-config }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 9999 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supply-chain-agent
+  namespace: apps
+spec:
+  selector: { app: supply-chain-agent }
+  ports:
+    - { port: 9999, targetPort: 9999, name: http }

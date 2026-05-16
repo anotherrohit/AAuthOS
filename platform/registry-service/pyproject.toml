@@ -1,0 +1,22 @@
+[project]
+name = "registry-service"
+version = "0.1.0"
+description = "AAuth Mission Platform — agent registry + JWKS aggregator"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.7",
+  "cryptography>=42",
+  "python-jose[cryptography]>=3.3",
+  "httpx>=0.27",
+  "structlog>=24.1",
+  "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]

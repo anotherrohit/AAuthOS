@@ -1,0 +1,45 @@
+# Helm values for the Bitnami Keycloak chart (fallback IDP).
+auth:
+  adminUser: admin
+  adminPassword: admin
+  managementUser: manager
+  managementPassword: manager
+
+replicaCount: 1
+production: false
+proxy: edge
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+service:
+  type: NodePort
+  nodePorts:
+    http: 30808
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  hostname: keycloak.aauth.local
+  tls: false
+
+# Import the demo realm at startup.
+keycloakConfigCli:
+  enabled: true
+  existingConfigmap: keycloak-realm-import
+
+postgresql:
+  enabled: true
+  auth:
+    database: keycloak
+    postgresPassword: postgres
+  primary:
+    persistence:
+      enabled: true
+      storageClass: standard
+      size: 2Gi
