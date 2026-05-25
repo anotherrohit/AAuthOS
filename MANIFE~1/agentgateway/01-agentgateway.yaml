@@ -18,10 +18,11 @@ spec:
           # for KIND validation.
           image: ghcr.io/agentgateway/agentgateway:latest
           imagePullPolicy: IfNotPresent
-          ports:
+           ports:
             - { containerPort: 8080, name: http }
             - { containerPort: 8443, name: https }
             - { containerPort: 9100, name: admin }
+            - { containerPort: 15021, name: readiness }
           env:
             - name: AGENTGATEWAY_POLICY_PATH
               value: /etc/agentgateway/policy.yaml
@@ -35,7 +36,7 @@ spec:
               mountPath: /etc/agentgateway
               readOnly: true
           readinessProbe:
-            httpGet: { path: /healthz, port: 8080 }
+            tcpSocket: { port: 15021 }
             initialDelaySeconds: 3
             periodSeconds: 5
       volumes:
