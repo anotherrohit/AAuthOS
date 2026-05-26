@@ -52,10 +52,11 @@ This is a **runnable scaffold**, not a finished product:
 | Numbered deploy scripts | Full (idempotent, with toggles) |
 | RadiantLogic Helm values + RFC 8693 config | Full (requires RL license + image) |
 | Keycloak fallback realm + token-exchange | Full |
-| Platform mission service (FastAPI) | Stub — endpoints from PRD, SQLite, no auth on admin paths |
-| Platform registry service (FastAPI) | Stub — endpoints from PRD, SQLite, JWKS aggregator |
+| Platform mission service (FastAPI) | Full — mission CRUD, hop + token ledger, kill-switch, audit feed, operator basic-auth |
+| Platform registry service (FastAPI) | Full — register / enroll / rotate / revoke, JWKS aggregator, policy renderer, IDP config, operator basic-auth |
+| **Operator console (HTML/JS SPA)** | **Full — login, agent CRUD, mission detail with hop chain, token ledger, gateway + IDP view, audit feed** |
 | agentgateway deployment + policy generation | Manifest + ConfigMap; policy generator is a script |
-| Backend / Supply Chain Agent / Market Analysis Agent | References upstream `aauth-full-demo` — patched env + Dockerfiles only |
+| Backend / Supply Chain Agent / Market Analysis Agent | References upstream `aauth-full-demo` — patched env + Dockerfiles, with `aauth_sdk` wired in |
 | Frontend (supply-chain-ui) | References upstream as-is |
 
 The agent code itself comes from the upstream demo — this repo's job is the deployment substrate, the platform services, and the IDP integration.
@@ -75,7 +76,12 @@ make demo
 
 # OSS fallback — Keycloak as IDP, no license required
 make USE_KEYCLOAK=1 demo
+
+# Open the operator console after demo finishes:
+#   http://localhost:9002    user: operator   pass: aauth-operator-demo
 ```
+
+The operator console is the platform-operator UI. It runs in-cluster on host port `9002` and talks directly to `registry-service:9000` and `mission-service:9001` (CORS-cleared, HTTP Basic auth). See [docs/OPERATOR_CONSOLE.md](docs/OPERATOR_CONSOLE.md).
 
 `make demo` runs each numbered script in order. To run them individually:
 

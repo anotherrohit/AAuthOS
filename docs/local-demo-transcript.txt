@@ -1,0 +1,92 @@
+
+==> [05] Operator pre-registers all three agents
+  registry           market-analysis  → https://platform.aauth.local/agents/market-analysis  bootstrap=r5k_Wi1ucd1y...
+  registry           supply-chain     → https://platform.aauth.local/agents/supply-chain  bootstrap=EUd2U0IRuwXN...
+  registry           backend          → https://platform.aauth.local/agents/backend  bootstrap=Tp5zYKDC_7Qy...
+
+==> [06] Agents boot and self-enroll (real Ed25519 + PoP signature)
+  backend            generated Ed25519 keypair thumbprint=6affd577f385dcc487ca3234
+  backend            enrolled OK · registry-side thumbprint=6affd577f385dcc487ca3234 · state=active
+  supply-chain       generated Ed25519 keypair thumbprint=8d38e35e98ef824ac9c0ed08
+  supply-chain       enrolled OK · registry-side thumbprint=8d38e35e98ef824ac9c0ed08 · state=active
+  market-analysis    generated Ed25519 keypair thumbprint=1646e19bf58ecb7052314203
+  market-analysis    enrolled OK · registry-side thumbprint=1646e19bf58ecb7052314203 · state=active
+
+==> [07.1] Registry roll call
+  registry           market-analysis    state=active  thumbprint=1646e19bf58ecb7052314203
+  registry           supply-chain       state=active  thumbprint=8d38e35e98ef824ac9c0ed08
+  registry           backend            state=active  thumbprint=6affd577f385dcc487ca3234
+  registry           aggregated /v1/agents/jwks.json keys: 3
+
+==> [07.2] Backend receives user request and creates a mission
+  mission-service    mission created  mission_id=f9b3569e...  user=demo-user
+
+==> [07.3] Backend → Supply Chain Agent (signed A2A call)
+  backend            POST /v1/optimize  sku=WIDGET-1 region=us-east
+  backend            requesting token-exchange at https://radiantlogic.idp.svc.cluster.local:8443/oauth2/token
+                     audience=https://platform.aauth.local/agents/supply-chain
+                     grant=urn:ietf:params:oauth:grant-type:token-exchange
+  radiantlogic       200 OK · issued_token_type=...:access_token · expires_in=300
+                     sub=https://platform.aauth.local/agents/backend
+                     act=['https://platform.aauth.local/agents/backend']  mission_id=f9b3569e-f7ed-4649-86c2-45ab56d2fa30  jti=tx-c6625344745604fa
+  backend            outbound A2A · target=supply-chain-agent · act=['https://platform.aauth.local/agents/backend'] · signed=ed25519
+  supply-chain       inbound verified · signature valid · mission_id active · gateway policy=allow
+
+==> [07.4] Supply Chain → Market Analysis (the RFC 8693 token exchange under test)
+  supply-chain       requesting token-exchange at https://radiantlogic.idp.svc.cluster.local:8443/oauth2/token
+                     audience=https://platform.aauth.local/agents/market-analysis
+                     grant=urn:ietf:params:oauth:grant-type:token-exchange
+  radiantlogic       200 OK · issued_token_type=...:access_token · expires_in=300
+                     sub=https://platform.aauth.local/agents/supply-chain
+                     act=['https://platform.aauth.local/agents/backend', 'https://platform.aauth.local/agents/supply-chain']  mission_id=f9b3569e-f7ed-4649-86c2-45ab56d2fa30  jti=tx-93f4a4868bfa6bab
+  supply-chain       outbound A2A · target=market-analysis-agent · act=['https://platform.aauth.local/agents/backend', 'https://platform.aauth.local/agents/supply-chain'] · signed=ed25519
+  market-analysis    inbound verified · signature valid · mission_id active
+  market-analysis    analyze() → 200  demand_forecast=42.7  confidence=0.91
+
+==> [07.5] Mission closes
+  mission-service    mission state updated  mission_id=f9b3569e...  state=completed  hops=2
+
+==> Mission ledger dump
+{
+  "id": "f9b3569e-f7ed-4649-86c2-45ab56d2fa30",
+  "state": "completed",
+  "user_subject": "demo-user",
+  "originator_agent_id": "https://platform.aauth.local/agents/backend",
+  "hops": [
+    {
+      "from": "https://platform.aauth.local/agents/backend",
+      "to": "https://platform.aauth.local/agents/supply-chain",
+      "act_chain": [
+        "https://platform.aauth.local/agents/backend"
+      ],
+      "jti": "tx-c6625344745604fa",
+      "at": 1779428183
+    },
+    {
+      "from": "https://platform.aauth.local/agents/supply-chain",
+      "to": "https://platform.aauth.local/agents/market-analysis",
+      "act_chain": [
+        "https://platform.aauth.local/agents/backend",
+        "https://platform.aauth.local/agents/supply-chain"
+      ],
+      "jti": "tx-93f4a4868bfa6bab",
+      "at": 1779428183
+    }
+  ]
+}
+
+==> [bonus] Operator revokes a mission mid-flight (kill switch)
+  operator           POST /v1/missions/2db99022.../revoke
+  backend            requesting token-exchange at https://radiantlogic.idp.svc.cluster.local:8443/oauth2/token
+                     audience=https://platform.aauth.local/agents/supply-chain
+                     grant=urn:ietf:params:oauth:grant-type:token-exchange
+  radiantlogic       200 OK · issued_token_type=...:access_token · expires_in=300
+                     sub=https://platform.aauth.local/agents/backend
+                     act=['https://platform.aauth.local/agents/backend']  mission_id=2db99022-44f2-47ad-b2a4-ecc3df2d06b5  jti=tx-ccf9236188d24849
+  backend            outbound A2A · target=supply-chain-agent · act=['https://platform.aauth.local/agents/backend'] · signed=ed25519
+  mission-service    state=revoked  tokens_in_chain_marked_revoked=1
+  agentgateway       deny policy pushed for mission_id=2db99022... (enforced within 5s)
+
+== RFC 8693 token exchange succeeded -- agent workload authenticated end-to-end ==
+  3 registered agents, 2 signed hops in primary mission, act chain extended at each hop, mission closed.
+

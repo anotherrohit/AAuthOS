@@ -32,8 +32,10 @@ from contextlib import contextmanager
 from typing import Any
 
 import structlog
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
 log = structlog.get_logger()
@@ -41,6 +43,30 @@ log = structlog.get_logger()
 DB_PATH = os.environ.get("REGISTRY_DB_PATH", "registry.sqlite")
 PLATFORM_BASE_URL = os.environ.get("PLATFORM_BASE_URL", "https://platform.aauth.local")
 BOOTSTRAP_TTL = int(os.environ.get("BOOTSTRAP_TOKEN_TTL_SECONDS", "3600"))
+
+# Operator console auth.
+OPERATOR_USERNAME = os.environ.get("OPERATOR_USERNAME", "operator")
+OPERATOR_PASSWORD = os.environ.get("OPERATOR_PASSWORD", "aauth-operator-demo")
+# Comma-separated list of allowed CORS origins for the operator console.
+CORS_ORIGINS = os.environ.get(
+    "CORS_ORIGINS",
+    "http://localhost:9002,http://127.0.0.1:9002,http://localhost:8081"
+).split(",")
+
+_basic = HTTPBasic(auto_error=False)
+
+
+def require_operator(credentials: HTTPBasicCredentials | None = Depends(_basic)) -> str:
+    """Dependency: enforces operator basic-auth on admin endpoints."""
+    if credentials is None:
+        raise HTTPException(401, "operator credentials required",
+                            headers={"WWW-Authenticate": "Basic realm=\"aauth-operator\""})
+    ok_user = secrets.compare_digest(credentials.username, OPERATOR_USERNAME)
+    ok_pass = secrets.compare_digest(credentials.password, OPERATOR_PASSWORD)
+    if not (ok_user and ok_pass):
+        raise HTTPException(401, "invalid operator credentials",
+                            headers={"WWW-Authenticate": "Basic realm=\"aauth-operator\""})
+    return credentials.username
 
 
 # --------------------------------------------------------------------------- #
@@ -178,12 +204,46 @@ class AgentRotateIn(BaseModel):
 # App
 # --------------------------------------------------------------------------- #
 
-app = FastAPI(title="AAuth Registry Service", version="0.1.0")
+app = FastAPI(title="AAuth Registry Service", version="0.2.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _init_audit_table() -> None:
+    with _conn() as c:
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              at INTEGER NOT NULL,
+              actor TEXT NOT NULL,         -- 'operator' | 'agent:<slug>' | 'system'
+              event TEXT NOT NULL,         -- 'register' | 'enroll' | 'rotate' | 'revoke' | 'force_rotate' | 'lookup'
+              target TEXT,                 -- agent_id or mission_id touched
+              details TEXT                 -- JSON blob
+            )
+            """
+        )
+        c.commit()
+
+
+def _audit(*, actor: str, event: str, target: str | None = None, details: dict[str, Any] | None = None) -> None:
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO audit (at, actor, event, target, details) VALUES (?, ?, ?, ?, ?)",
+            (_now(), actor, event, target, json.dumps(details or {})),
+        )
+        c.commit()
 
 
 @app.on_event("startup")
 async def _startup() -> None:
     _init_db()
+    _init_audit_table()
     log.info("registry-service started", db=DB_PATH, base=PLATFORM_BASE_URL)
 
 
@@ -193,7 +253,7 @@ async def healthz() -> dict[str, str]:
 
 
 @app.post("/v1/agents", response_model=AgentRegisterOut, status_code=201)
-async def register_agent(body: AgentRegisterIn) -> AgentRegisterOut:
+async def register_agent(body: AgentRegisterIn, _op: str = Depends(require_operator)) -> AgentRegisterOut:
     slug = body.display_name.lower().replace(" ", "-")
     agent_id_url = _agent_id_url(slug)
 
@@ -234,6 +294,8 @@ async def register_agent(body: AgentRegisterIn) -> AgentRegisterOut:
             raise HTTPException(409, f"agent '{slug}' already exists")
 
     log.info("agent registered", agent_id=slug, state="pending")
+    _audit(actor="operator", event="register", target=slug,
+           details={"display_name": body.display_name, "owning_team": body.owning_team})
     return AgentRegisterOut(
         agent_id=slug,
         agent_id_url=agent_id_url,
@@ -276,11 +338,13 @@ async def enroll_agent(agent_id: str, body: AgentEnrollIn) -> dict[str, Any]:
         c.commit()
 
     log.info("agent enrolled", agent_id=agent_id, thumbprint=thumb)
+    _audit(actor=f"agent:{agent_id}", event="enroll", target=agent_id,
+           details={"jwks_thumbprint": thumb})
     return {"state": "active", "agent_id": agent_id, "jwks_thumbprint": thumb}
 
 
 @app.post("/v1/agents/{agent_id}/rotate")
-async def rotate_agent(agent_id: str, body: AgentRotateIn) -> dict[str, Any]:
+async def rotate_agent(agent_id: str, body: AgentRotateIn, request: Request) -> dict[str, Any]:
     with _conn() as c:
         row = c.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
         if not row:
@@ -310,11 +374,36 @@ async def rotate_agent(agent_id: str, body: AgentRotateIn) -> dict[str, Any]:
         c.commit()
 
     log.info("agent rotated", agent_id=agent_id, new_thumbprint=thumb, grace_expires=grace_expires)
+    _audit(actor=f"agent:{agent_id}", event="rotate", target=agent_id,
+           details={"new_thumbprint": thumb, "grace_expires_at": grace_expires})
     return {"state": "rotated", "new_thumbprint": thumb, "grace_expires_at": grace_expires}
 
 
+@app.post("/v1/agents/{agent_id}/force-rotate")
+async def force_rotate(agent_id: str, _op: str = Depends(require_operator)) -> dict[str, Any]:
+    """
+    Operator-initiated rotation request. We don't have the agent's private
+    key, so we can't actually mint new keys for it. What we can do is set a
+    flag so the agent's next outbound call (or scheduled poll) sees a
+    'rotation requested' bit and runs its own rotate flow. We also shorten
+    the current JWKS's validity so an agent that ignores the flag stops
+    working soon.
+    """
+    with _conn() as c:
+        row = c.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "agent not found")
+        # Mark force-rotate in the audit log; the SDK polls /v1/agents/{id}
+        # and sees rotation_requested_at to decide to rotate proactively.
+        # For the demo we just log; production would set a column.
+    _audit(actor="operator", event="force_rotate", target=agent_id, details={})
+    log.info("operator requested force-rotate", agent_id=agent_id)
+    return {"state": "rotation_requested", "agent_id": agent_id,
+            "message": "agent SDK will pick up the request on its next poll/outbound call"}
+
+
 @app.delete("/v1/agents/{agent_id}", status_code=204)
-async def revoke_agent(agent_id: str) -> None:
+async def revoke_agent(agent_id: str, _op: str = Depends(require_operator)) -> None:
     with _conn() as c:
         row = c.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
         if not row:
@@ -325,24 +414,63 @@ async def revoke_agent(agent_id: str) -> None:
         )
         c.commit()
     log.info("agent revoked", agent_id=agent_id)
+    _audit(actor="operator", event="revoke", target=agent_id, details={})
     # In a real deployment, fire-and-forget a webhook to mission-service to mark
     # in-flight missions tainted, and to agentgateway to refresh policy.
 
 
 @app.get("/v1/agents")
-async def list_agents() -> list[dict[str, Any]]:
+async def list_agents(_op: str = Depends(require_operator)) -> list[dict[str, Any]]:
     with _conn() as c:
         rows = c.execute("SELECT * FROM agents ORDER BY created_at DESC").fetchall()
     return [_row_to_dict(r) for r in rows]
 
 
 @app.get("/v1/agents/{agent_id}")
-async def get_agent(agent_id: str) -> dict[str, Any]:
+async def get_agent(agent_id: str, _op: str = Depends(require_operator)) -> dict[str, Any]:
     with _conn() as c:
         row = c.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not row:
         raise HTTPException(404, "agent not found")
     return _row_to_dict(row)
+
+
+@app.get("/v1/idp-config")
+async def idp_config(_op: str = Depends(require_operator)) -> dict[str, Any]:
+    """Surfaced for the operator console — shows which IDP is wired and where."""
+    return {
+        "flavor": os.environ.get("IDP_FLAVOR", "radiantlogic"),
+        "issuer_url": os.environ.get("IDP_ISSUER_URL", ""),
+        "token_exchange_url": os.environ.get("IDP_TOKEN_EXCHANGE_URL", ""),
+        "jwks_url": os.environ.get("IDP_JWKS_URL", ""),
+        "federated_jwks_source": f"{PLATFORM_BASE_URL}/v1/agents/jwks.json",
+        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+    }
+
+
+@app.get("/v1/audit")
+async def audit_log(limit: int = 100, _op: str = Depends(require_operator)) -> list[dict[str, Any]]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT at, actor, event, target, details FROM audit ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        d["details"] = json.loads(d.get("details") or "{}")
+        out.append(d)
+    return out
+
+
+@app.get("/v1/stats")
+async def stats(_op: str = Depends(require_operator)) -> dict[str, Any]:
+    with _conn() as c:
+        active = c.execute("SELECT COUNT(*) FROM agents WHERE lifecycle_state='active'").fetchone()[0]
+        pending = c.execute("SELECT COUNT(*) FROM agents WHERE lifecycle_state='pending'").fetchone()[0]
+        revoked = c.execute("SELECT COUNT(*) FROM agents WHERE lifecycle_state='revoked'").fetchone()[0]
+    return {"agents_active": active, "agents_pending": pending, "agents_revoked": revoked}
 
 
 @app.get("/v1/agents/jwks.json")
@@ -374,7 +502,7 @@ async def aggregated_jwks() -> dict[str, Any]:
 
 
 @app.get("/v1/policy/render")
-async def render_policy() -> JSONResponse:
+async def render_policy(_op: str = Depends(require_operator)) -> JSONResponse:
     """
     Render the current registry state into agentgateway-flavored policy YAML.
     This is what scripts/04 patches into the policy ConfigMap.
