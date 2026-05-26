@@ -5,6 +5,19 @@ auth:
   managementUser: manager
   managementPassword: manager
 
+image:
+  registry: docker.io
+  repository: bitnamilegacy/keycloak
+
+keycloakConfigCli:
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/keycloak-config-cli
+
+replicaCount: 1
+production: false
+proxy: edge
+
 replicaCount: 1
 production: false
 proxy: edge
@@ -32,9 +45,15 @@ ingress:
 keycloakConfigCli:
   enabled: true
   existingConfigmap: keycloak-realm-import
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/keycloak-config-cli
 
 postgresql:
   enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
   auth:
     database: keycloak
     postgresPassword: postgres
