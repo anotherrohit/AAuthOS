@@ -17,28 +17,31 @@ echo "    We'll skip the browser and POST directly to the backend instead, then"
 echo "    show the resulting mission state."
 echo ""
 
-# Backend exposes a dev-only token endpoint for the demo so we can skip OIDC.
-# In production this path doesn't exist.
-DEV_TOKEN="$(curl -sf -X POST http://localhost:8000/dev/login \
-  -d '{"username":"demo-user"}' \
-  -H 'Content-Type: application/json' \
-  | jq -r '.access_token')"
-
 echo "==> Submitting mission via backend"
-RESP="$(curl -sf -X POST http://localhost:8000/v1/optimize \
-  -H "Authorization: Bearer ${DEV_TOKEN}" \
+RESP="$(curl -sf -X POST http://localhost:8000/optimization/start \
   -H "Content-Type: application/json" \
-  -d '{"sku":"WIDGET-1","region":"us-east"}')"
+  -d '{"scenario":"laptop_supply_chain","custom_prompt":"optimize supply chain","parameters":{"sku":"WIDGET-1","region":"us-east"}}')"
 
-MISSION_ID="$(echo "${RESP}" | jq -r '.mission_id')"
-echo "    mission_id=${MISSION_ID}"
-
-echo ""
-echo "==> Mission state (from mission-service):"
-kubectl -n "${PLATFORM_NS}" exec deploy/mission-service -- \
-  curl -sf "http://localhost:9001/v1/missions/${MISSION_ID}" | jq .
+REQUEST_ID="$(echo "${RESP}" | jq -r '.request_id')"
+echo "    request_id=${REQUEST_ID}"
 
 echo ""
-echo "==> Tail mission service logs (Ctrl-C to exit)"
-echo "    Or try: make revoke-mission ID=${MISSION_ID}"
-kubectl -n "${PLATFORM_NS}" logs -f deploy/mission-service --tail=30
+echo "==> Optimization state (from backend):"
+for _ in $(seq 1 30); do
+  STATE="$(curl -sf "http://localhost:8000/optimization/progress/${REQUEST_ID}")"
+  STATUS="$(echo "${STATE}" | jq -r '.status')"
+  if [[ "${STATUS}" == "completed" || "${STATUS}" == "failed" ]]; then
+    echo "${STATE}" | jq .
+    break
+  fi
+  sleep 2
+done
+
+echo ""
+echo "==> Registered agents:"
+kubectl -n "${PLATFORM_NS}" exec deploy/registry-service -- \
+  curl -sf "http://localhost:9000/v1/agents" | jq .
+
+echo ""
+echo "==> Tail backend logs (Ctrl-C to exit)"
+kubectl -n "${APPS_NS}" logs -f deploy/backend --tail=30
