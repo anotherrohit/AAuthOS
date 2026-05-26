@@ -31,15 +31,31 @@ python3 "${PATCHER}" "${WORK}/aauth-full-demo"
 stage_sdk_for() {
   local subdir="$1"
   local dst="${WORK}/aauth-full-demo/${subdir}/aauth-sdk"
+  local copy_src="aauth-sdk"
+  local pyproject="${WORK}/aauth-full-demo/${subdir}/pyproject.toml"
   rm -rf "${dst}"
   cp -R "${SDK_DIR}" "${dst}"
-
-  local df="${WORK}/aauth-full-demo/${subdir}/Dockerfile"
-  if ! grep -q "aauth-sdk" "${df}"; then
-    # Inject before the CMD so the install happens early enough to fail fast.
+if [[ -f "${pyproject}" ]] && ! grep -q "structlog" "${pyproject}"; then
     awk '
-      /^CMD/ && !done { print "COPY aauth-sdk /opt/aauth-sdk"; print "RUN pip install /opt/aauth-sdk"; done=1 } { print }
-    ' "${df}" > "${df}.new" && mv "${df}.new" "${df}"
+      /^\]/ && in_deps && !done { print "    \"structlog>=24.1\","; done=1; in_deps=0 }
+      /^\[project\]/ { in_project=1 }
+      in_project && /^dependencies = \[/ { in_deps=1 }
+      { print }
+    ' "${pyproject}" > "${pyproject}.new" && mv "${pyproject}.new" "${pyproject}"
+  fi
+   local df="${WORK}/aauth-full-demo/${subdir}/Dockerfile"
+  if ! grep -q "aauth-sdk" "${df}"; then
+    # Backend builds from the upstream repo root; agent images build from their
+    # own subdirectories. Match the Dockerfile COPY source to that context.
+     if [[ "${subdir}" == "backend" ]]; then
+    sed -i 's#CMD \["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"\]#CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]#' "${df}"
+  else
+    sed -i 's#CMD \["uv", "run", ".", "--host", "0.0.0.0", "--port", "[0-9]*"\]#CMD ["python", "__main__.py"]#' "${df}"
+  fi
+    # Inject before USER so the SDK install runs as root and fails fast.
+    awk '
+ /^USER/ && !done { print "COPY '"${copy_src}"' /opt/aauth-sdk"; print "ENV PYTHONPATH=/opt/aauth-sdk:/app"; print "RUN pip install /opt/aauth-sdk"; done=1 } { print }
+      ' "${df}" > "${df}.new" && mv "${df}.new" "${df}"
     echo "    patched ${df}"
   fi
 }
@@ -51,7 +67,11 @@ stage_sdk_for "market-analysis-agent"
 build_agent() {
   local name="$1"; local subdir="$2"; local image="$3"
   echo "==> Building ${image} from upstream ${subdir}"
-  docker build -t "${image}" "${WORK}/aauth-full-demo/${subdir}"
+  if [[ "${subdir}" == "backend" ]]; then
+    docker build -t "${image}" -f "${WORK}/aauth-full-demo/${subdir}/Dockerfile" "${WORK}/aauth-full-demo"
+  else
+    docker build -t "${image}" "${WORK}/aauth-full-demo/${subdir}"
+  fi
   kind load docker-image "${image}" --name "${CLUSTER_NAME}"
 }
 
@@ -59,7 +79,18 @@ build_agent "backend"         "backend"               "aauth/backend:dev"
 build_agent "supply-chain"    "supply-chain-agent"    "aauth/supply-chain-agent:dev"
 build_agent "market-analysis" "market-analysis-agent" "aauth/market-analysis-agent:dev"
 
-echo "==> Building frontend (no SDK — UI is not a registered agent)"
+echo "==> Building frontend (no SDK â€” UI is not a registered agent)"
+if [[ ! -f "${WORK}/aauth-full-demo/supply-chain-ui/Dockerfile" ]]; then
+  cat > "${WORK}/aauth-full-demo/supply-chain-ui/Dockerfile" <<'EOF'
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3050
+CMD ["npm", "start"]
+EOF
+fi
 docker build -t aauth/supply-chain-ui:dev "${WORK}/aauth-full-demo/supply-chain-ui"
 kind load docker-image aauth/supply-chain-ui:dev --name "${CLUSTER_NAME}"
 
@@ -73,6 +104,11 @@ done
 
 echo "==> Applying workload manifests"
 kubectl apply -f "${ROOT}/manifests/workloads/"
+kubectl -n "${APPS_NS:-apps}" rollout restart \
+  deploy/backend \
+  deploy/supply-chain-agent \
+  deploy/market-analysis-agent \
+  deploy/supply-chain-ui
 
 echo "==> Waiting for workloads"
 for dep in backend supply-chain-agent market-analysis-agent supply-chain-ui; do
