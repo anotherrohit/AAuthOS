@@ -5,8 +5,8 @@
 // services live on :9000 (registry) and :9001 (mission). When the user serves
 // the console behind a reverse proxy, they can override these via window.AAUTH_CFG.
 const CFG = Object.assign({
-  registryUrl: localStorage.getItem("aauth.registryUrl") || "http://localhost:9000",
-  missionUrl:  localStorage.getItem("aauth.missionUrl")  || "http://localhost:9001",
+   registryUrl: localStorage.getItem("aauth.registryUrl") || "http://127.0.0.1:9000",
+  missionUrl:  localStorage.getItem("aauth.missionUrl")  || "http://127.0.0.1:9001",
 }, window.AAUTH_CFG || {});
 
 // Session — basic auth header stored in sessionStorage so a tab refresh keeps
