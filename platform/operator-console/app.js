@@ -7,6 +7,7 @@
 const CFG = Object.assign({
    registryUrl: localStorage.getItem("aauth.registryUrl") || "http://127.0.0.1:9000",
   missionUrl:  localStorage.getItem("aauth.missionUrl")  || "http://127.0.0.1:9001",
+  backendUrl:  localStorage.getItem("aauth.backendUrl")  || "http://127.0.0.1:8000",
 }, window.AAUTH_CFG || {});
 
 // Session — basic auth header stored in sessionStorage so a tab refresh keeps
@@ -15,6 +16,7 @@ let AUTH = sessionStorage.getItem("aauth.basic") || null;
 let USER = sessionStorage.getItem("aauth.user") || null;
 let LAST_BOOTSTRAP = null;
 let CURRENT_MISSION = null;
+let LAST_DEMO = null;
 
 // ---- HTTP helpers ----------------------------------------------------------
 async function api(svc, path, opts = {}) {
@@ -33,6 +35,21 @@ async function api(svc, path, opts = {}) {
   // policy/render returns text/yaml; everything else is JSON.
   const ct = r.headers.get("content-type") || "";
   if (ct.includes("yaml") || ct.includes("text/plain")) return r.text();
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+async function backendApi(path, opts = {}) {
+  const base = document.getElementById("demo-backend-url")?.value?.trim() || CFG.backendUrl;
+  const headers = Object.assign(
+    { "Content-Type": "application/json", "Accept": "application/json" },
+    opts.headers || {},
+  );
+  const r = await fetch(base.replace(/\/$/, "") + path, { ...opts, headers });
+  if (!r.ok) {
+    let body = ""; try { body = await r.text(); } catch (_) {}
+    throw new Error(`${r.status} ${r.statusText} - ${body.slice(0, 260)}`);
+  }
   if (r.status === 204) return null;
   return r.json();
 }
@@ -81,7 +98,7 @@ document.addEventListener("click", (ev) => {
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
   const id = "page-" + t.dataset.page;
   document.getElementById(id).classList.add("active");
-  const loader = { dashboard: loadDashboard, agents: loadAgents, missions: loadMissions,
+  const loader = { dashboard: loadDashboard, demo: loadDemo, agents: loadAgents, missions: loadMissions,
                    tokens: loadTokens, gateway: loadGateway, audit: loadAudit };
   loader[t.dataset.page]?.();
 });
@@ -112,6 +129,160 @@ async function loadDashboard() {
     document.getElementById("s-tokens-total").textContent   = missionStats.tokens_total;
     renderAudit(audit, "dash-feed");
   } catch (e) { toast("dashboard load failed: " + e.message); }
+}
+
+// ---- demo runner -----------------------------------------------------------
+function demoLog(msg, cls = "") {
+  const log = document.getElementById("demo-log");
+  if (!log) return;
+  const line = document.createElement("div");
+  line.className = "line " + cls;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function resetDemoOutput() {
+  const log = document.getElementById("demo-log");
+  const result = document.getElementById("demo-result");
+  if (log) log.innerHTML = "";
+  if (result) { result.innerHTML = ""; result.style.display = "none"; }
+}
+
+async function loadDemo() {
+  const backend = document.getElementById("demo-backend-url");
+  if (backend && !backend.value) backend.value = CFG.backendUrl;
+  try {
+    const audit = await api("mission", "/v1/audit?limit=12");
+    renderAudit(audit, "demo-feed");
+  } catch (e) {
+    const feed = document.getElementById("demo-feed");
+    if (feed) feed.innerHTML = `<div class="empty">audit load failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function issueDemoLedgerMission(user, sku, region, requestId = null) {
+  const agents = (await api("registry", "/v1/agents")).filter(a => a.lifecycle_state === "active");
+  const backend = agents.find(a => a.display_name === "backend" || agentSlug(a.agent_id_url) === "backend");
+  if (!backend) throw new Error("backend agent is not registered/active");
+  const downstream = (backend.allowed_downstream_agents || [])[0];
+  const platformBase = backend.agent_id_url.replace(/\/agents\/[^/]+$/, "");
+  const body = {
+    originator_agent_id: backend.agent_id_url,
+    scope: "supply-chain-optimize",
+    user_subject: user || "demo-user",
+    ttl_seconds: 900,
+    metadata: {
+      source: "operator-console-07-demo",
+      sku,
+      region,
+      backend_request_id: requestId,
+    },
+  };
+  if (downstream) body.seed_hop_to = `${platformBase}/agents/${downstream}`;
+  return api("mission", "/v1/missions/issue", { method: "POST", body: JSON.stringify(body) });
+}
+
+async function markDemoMission(missionId, state) {
+  if (!missionId) return null;
+  return api("mission", `/v1/missions/${encodeURIComponent(missionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ state }),
+  });
+}
+
+async function pollOptimization(requestId, timeoutSeconds) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let progress = null;
+  while (Date.now() < deadline) {
+    progress = await backendApi(`/optimization/progress/${encodeURIComponent(requestId)}`);
+    demoLog(`backend progress: ${progress.status} (${progress.progress_percentage ?? 0}%)`);
+    if (["completed", "failed", "cancelled"].includes(progress.status)) return progress;
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  throw new Error(`timed out waiting for backend request ${requestId}`);
+}
+
+function renderDemoResult(data) {
+  const result = document.getElementById("demo-result");
+  if (!result) return;
+  const rows = [
+    ["Backend request", data.request_id || "-"],
+    ["Mission", data.mission_id || "-"],
+    ["Status", data.status || "-"],
+    ["SKU", data.sku || "-"],
+    ["Region", data.region || "-"],
+  ];
+  result.innerHTML = rows.map(([k, v]) => `<div class="key">${escapeHtml(k)}</div><div class="val">${escapeHtml(v)}</div>`).join("");
+  result.style.display = "grid";
+}
+
+async function runDemoMission() {
+  const btn = document.getElementById("demo-run-btn");
+  const backend = document.getElementById("demo-backend-url").value.trim().replace(/\/$/, "");
+  const user = document.getElementById("demo-user").value.trim() || "demo-user";
+  const sku = document.getElementById("demo-sku").value.trim() || "WIDGET-1";
+  const region = document.getElementById("demo-region").value.trim() || "us-east";
+  const prompt = document.getElementById("demo-prompt").value.trim() || "optimize supply chain";
+  const timeoutSeconds = parseInt(document.getElementById("demo-timeout").value, 10) || 45;
+  const trackMission = document.getElementById("demo-track-mission").checked;
+  localStorage.setItem("aauth.backendUrl", backend);
+  CFG.backendUrl = backend;
+  resetDemoOutput();
+  btn.disabled = true;
+  btn.textContent = "Running...";
+  let missionId = null;
+  let requestId = null;
+  try {
+    demoLog("07 demo: submitting supply-chain optimization to backend");
+    const start = await backendApi("/optimization/start", {
+      method: "POST",
+      body: JSON.stringify({
+        scenario: "laptop_supply_chain",
+        custom_prompt: prompt,
+        parameters: { sku, region },
+      }),
+    });
+    requestId = start.request_id;
+    if (!requestId) throw new Error("backend did not return request_id");
+    demoLog(`backend request_id=${requestId}`, "ok");
+
+    if (trackMission) {
+      demoLog("creating mission-service ledger entry for console tracking");
+      const issued = await issueDemoLedgerMission(user, sku, region, requestId);
+      missionId = issued.mission_id;
+      demoLog(`mission_id=${missionId}`, "ok");
+    }
+
+    const progress = await pollOptimization(requestId, timeoutSeconds);
+    const status = progress.status || "unknown";
+    if (missionId && status === "completed") {
+      await markDemoMission(missionId, "completed").catch(e => demoLog("mission completion update skipped: " + e.message, "warn"));
+    }
+    if (missionId && status === "failed") {
+      await markDemoMission(missionId, "failed").catch(e => demoLog("mission failure update skipped: " + e.message, "warn"));
+    }
+    demoLog(`demo finished: ${status}`, status === "completed" ? "ok" : "warn");
+    LAST_DEMO = { request_id: requestId, mission_id: missionId, status, sku, region, progress };
+    renderDemoResult(LAST_DEMO);
+    await Promise.all([loadDashboard(), loadDemo(), loadMissions().catch(() => {})]);
+    if (missionId) viewMission(missionId);
+  } catch (e) {
+    demoLog("demo failed: " + e.message, "err");
+    LAST_DEMO = { request_id: requestId, mission_id: missionId, status: "failed", sku, region };
+    renderDemoResult(LAST_DEMO);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run 07 demo";
+  }
+}
+
+function openDemoMission() {
+  if (!LAST_DEMO?.mission_id) {
+    toast("no demo mission yet");
+    return;
+  }
+  viewMission(LAST_DEMO.mission_id);
 }
 
 // ---- agents ----------------------------------------------------------------
