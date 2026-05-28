@@ -90,6 +90,18 @@ td.mono, code { font-family: var(--mono); font-size: 12.5px; color: var(--text-d
 .bootstrap-reveal { background: #1a2436; border: 1px solid var(--border); padding: 14px; border-radius: 8px; font-family: var(--mono); font-size: 13px; word-break: break-all; margin: 12px 0; }
 .bootstrap-reveal .warn { color: var(--warn); font-family: var(--sans); font-size: 12px; margin-bottom: 8px; }
 .empty { color: var(--text-dim); text-align: center; padding: 32px; font-style: italic; }
+.demo-grid { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 16px; align-items: start; }
+.demo-form .field:last-child { margin-bottom: 0; }
+.demo-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.run-log { background: #0b1220; border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-height: 160px; max-height: 460px; overflow: auto; font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); }
+.run-log .line { padding: 3px 0; white-space: pre-wrap; word-break: break-word; }
+.run-log .ok { color: var(--ok); } .run-log .warn { color: var(--warn); } .run-log .err { color: var(--danger); }
+.demo-result { margin-top: 12px; display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; font-size: 13px; }
+.demo-result .key { color: var(--text-dim); }
+.demo-result .val { font-family: var(--mono); color: var(--text); word-break: break-all; }
+@media (max-width: 980px) {
+  .demo-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
@@ -114,6 +126,7 @@ td.mono, code { font-family: var(--mono); font-size: 12.5px; color: var(--text-d
     <div class="brand">AAuth Mission Platform <span class="dot">·</span> operator</div>
     <div class="tabs">
       <button class="tab active" data-page="dashboard">Dashboard</button>
+      <button class="tab" data-page="demo">Demo</button>
       <button class="tab" data-page="agents">Agents</button>
       <button class="tab" data-page="missions">Missions</button>
       <button class="tab" data-page="tokens">Tokens</button>
@@ -137,8 +150,53 @@ td.mono, code { font-family: var(--mono); font-size: 12.5px; color: var(--text-d
         <div id="dash-feed"></div>
       </div>
     </section>
+ <section id="page-demo" class="page">
+      <div class="demo-grid">
+        <div class="panel demo-form">
+          <h2>Run demo mission</h2>
+          <div class="field"><label>Backend URL</label>
+            <input id="demo-backend-url" value="http://127.0.0.1:8000"></div>
+          <div class="field"><label>User subject</label>
+            <input id="demo-user" value="demo-user"></div>
+          <div class="field"><label>SKU</label>
+            <input id="demo-sku" value="WIDGET-1"></div>
+          <div class="field"><label>Region</label>
+            <input id="demo-region" value="us-east"></div>
+          <div class="field"><label>Prompt</label>
+            <textarea id="demo-prompt" rows="3">optimize supply chain for the operator console demo</textarea>
+          </div>
+          <div class="field"><label>Poll timeout (seconds)</label>
+            <input id="demo-timeout" type="number" min="5" max="120" value="45"></div>
+          <div class="field" style="display:flex;align-items:center;gap:8px;margin-top:6px">
+            <input id="demo-track-mission" type="checkbox" checked style="width:auto">
+            <label for="demo-track-mission" style="display:inline;margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text-dim)">
+              Create a mission ledger entry and seed backend to supply-chain hop
+            </label>
+          </div>
+          <div class="demo-actions">
+            <button id="demo-run-btn" class="btn primary" onclick="runDemoMission()">Run 07 demo</button>
+            <button class="btn" onclick="resetDemoOutput()">Clear</button>
+            <button class="btn" onclick="loadDemo()">Refresh refs</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Demo run output
+            <span class="actions">
+              <button class="btn small" onclick="openDemoMission()">Open mission</button>
+              <button class="btn small" onclick="loadDemo()">Refresh audit</button>
+            </span>
+          </h2>
+          <div id="demo-log" class="run-log"></div>
+          <div id="demo-result" class="demo-result" style="display:none"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Mission/audit feed <span class="actions"><button class="btn small" onclick="loadDemo()">Refresh</button></span></h2>
+        <div id="demo-feed"></div>
+      </div>
+    </section>
 
-    <section id="page-agents" class="page">
+      <section id="page-agents" class="page">
       <div class="panel">
         <h2>Registered agents
           <span class="actions">
