@@ -74,12 +74,10 @@ async def enroll(
             current = (await client.get(f"{cfg.registry_url}/v1/agents/{slug}")).json()
             if current.get("lifecycle_state") == "active":
                 published = keypair.to_public_jwk()["x"]
-             on_file = ((current.get("jwks_json") or {}).get("keys") or [{}])[0].get("x")
+                on_file = ((current.get("jwks_json") or {}).get("keys") or [{}])[0].get("x")
                 if published == on_file:
                     log.info("enrollment idempotent — agent already active", agent_id=slug)
                     return {"state": "active", "agent_id": slug, "idempotent": True}
-                log.warning("agent already active with a different JWKS; skipping demo re-enroll", agent_id=slug)
-                return {"state": "active", "agent_id": slug, "idempotent": True, "jwks_mismatch": True}
         except Exception as e:  # noqa: BLE001 — registry may be unreachable yet
             log.debug("idempotency probe failed", error=str(e))
 

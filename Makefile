@@ -10,7 +10,7 @@ IDP_NS       := idp
 APPS_NS      := apps
 GW_NS        := gateway
 
-.PHONY: help demo kind-up radiantlogic keycloak idp platform gateway register apps run teardown clean revoke-agent revoke-mission
+.PHONY: help demo kind-up radiantlogic keycloak idp platform gateway register apps run teardown clean revoke-agent revoke-mission console console-local
 
 help:
 	@echo "AAuth Mission Platform — KIND demo"
@@ -30,6 +30,9 @@ help:
 	@echo ""
 	@echo "  make revoke-agent ID=...   Revoke a registered agent at the registry"
 	@echo "  make revoke-mission ID=... Revoke an in-flight mission"
+	@echo ""
+	@echo "  make console               Open the in-cluster operator console URL"
+	@echo "  make console-local         Run the console locally against host-port-forwarded services (no K8s required)"
 
 demo: kind-up idp platform gateway register apps run
 
@@ -78,3 +81,19 @@ revoke-mission:
 	@test -n "$(ID)" || (echo "usage: make revoke-mission ID=<mission_id>"; exit 1)
 	@kubectl -n $(PLATFORM_NS) exec deploy/mission-service -- curl -sf -X POST http://localhost:9001/v1/missions/$(ID)/revoke
 	@echo "mission $(ID) revoked — agentgateway will deny any in-flight call with this mission_id"
+
+# Open the in-cluster operator console (mapped to host port 9002 by KIND).
+console:
+	@echo ""
+	@echo "Operator console:    http://localhost:9002"
+	@echo "Default credentials: operator / aauth-operator-demo (override with OPERATOR_USERNAME / OPERATOR_PASSWORD env on the platform services)"
+	@command -v xdg-open >/dev/null && xdg-open http://localhost:9002 \
+		|| command -v open >/dev/null && open http://localhost:9002 \
+		|| true
+
+# Run the console locally without K8s. Requires that registry-service and
+# mission-service are reachable at localhost:9000 / 9001 — either via
+# `kubectl port-forward`, or via the in-process standalone harness, or via
+# both services running locally with `uvicorn`.
+console-local:
+	@cd platform/operator-console && python3 server.py

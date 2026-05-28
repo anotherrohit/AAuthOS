@@ -14,9 +14,9 @@ spec:
       containers:
         - name: supply-chain-ui
           image: aauth/supply-chain-ui:dev
-        imagePullPolicy: IfNotPresent
+          imagePullPolicy: IfNotPresent
           ports:
-            - { containerPort: 3050, name: http }
+            - { containerPort: 3000, name: http }
           env:
             - name: REACT_APP_BACKEND_URL
               value: http://localhost:8000
@@ -35,4 +35,4 @@ spec:
   type: NodePort
   selector: { app: supply-chain-ui }
   ports:
-    - { port: 3000, targetPort: 3050, nodePort: 30000, name: http }
+    - { port: 3000, targetPort: 3000, nodePort: 30000, name: http }

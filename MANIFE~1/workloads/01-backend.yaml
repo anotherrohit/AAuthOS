@@ -30,14 +30,10 @@ spec:
               value: http://mission-service.platform.svc.cluster.local:9001
             - name: AAUTH_GATEWAY_URL
               value: https://agentgateway.gateway.svc.cluster.local:8443
-           - name: SUPPLY_CHAIN_AGENT_ID_URL
+            - name: SUPPLY_CHAIN_AGENT_ID_URL
               value: https://platform.aauth.local/agents/supply-chain
-            - name: SUPPLY_CHAIN_AGENT_URL
-              value: http://supply-chain-agent.apps.svc.cluster.local:9999/
-           - name: AAUTH_SIGNATURE_SCHEME
+            - name: AAUTH_SIGNATURE_SCHEME
               value: jwks
-            - name: AAUTH_KEY_STATE_DIR
-              value: /tmp/aauth
           envFrom:
             - configMapRef: { name: platform-config }
           readinessProbe:

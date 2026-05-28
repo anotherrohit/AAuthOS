@@ -30,12 +30,6 @@ spec:
               value: https://agentgateway.gateway.svc.cluster.local:8443
             - name: AAUTH_SIGNATURE_SCHEME
               value: jwks
-            - name: AAUTH_KEY_STATE_DIR
-              value: /tmp/aauth
-            - name: MARKET_ANALYSIS_AGENT_PORT
-              value: "9998"
-            - name: MARKET_ANALYSIS_AGENT_URL
-              value: http://market-analysis-agent.apps.svc.cluster.local:9998/
           envFrom:
             - configMapRef: { name: platform-config }
           readinessProbe:

@@ -33,8 +33,8 @@ register() {
     -H 'Content-Type: application/json' \
     -d "${body}")"
 
-   echo "${resp}" | jq -r '.bootstrap_token' | tr -d '\r' > "${TOKENS_DIR}/${name}.token"
-  echo "${resp}" | jq -r '.agent_id_url'    | tr -d '\r' > "${TOKENS_DIR}/${name}.id_url"
+  echo "${resp}" | jq -r '.bootstrap_token' > "${TOKENS_DIR}/${name}.token"
+  echo "${resp}" | jq -r '.agent_id_url'    > "${TOKENS_DIR}/${name}.id_url"
   echo "    ${name} → $(cat "${TOKENS_DIR}/${name}.id_url")"
 }
 

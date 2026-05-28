@@ -42,28 +42,22 @@ class AgentConfig:
 
     @classmethod
     def from_env(cls) -> "AgentConfig":
-        def clean(value: str) -> str:
-            return value.strip()
-
         def req(name: str) -> str:
             v = os.environ.get(name)
             if not v:
                 raise RuntimeError(f"missing required env var: {name}")
-            return clean(v)
-
-        def opt(name: str, default: str = "") -> str:
-            return clean(os.environ.get(name, default))
+            return v
 
         return cls(
             bootstrap_token=req("AAUTH_BOOTSTRAP_TOKEN"),
             agent_id_url=req("AAUTH_AGENT_ID_URL"),
             registry_url=req("AAUTH_REGISTRY_URL"),
-            mission_url=opt("AAUTH_MISSION_URL"),
-            gateway_url=opt("AAUTH_GATEWAY_URL"),
+            mission_url=os.environ.get("AAUTH_MISSION_URL", ""),
+            gateway_url=os.environ.get("AAUTH_GATEWAY_URL", ""),
             idp_issuer_url=req("IDP_ISSUER_URL"),
             idp_token_exchange_url=req("IDP_TOKEN_EXCHANGE_URL"),
             idp_jwks_url=req("IDP_JWKS_URL"),
-            idp_flavor=opt("IDP_FLAVOR", "radiantlogic"),
-            signature_scheme=opt("AAUTH_SIGNATURE_SCHEME", "jwks"),
-            key_state_dir=opt("AAUTH_KEY_STATE_DIR", "/var/lib/aauth"),
+            idp_flavor=os.environ.get("IDP_FLAVOR", "radiantlogic"),
+            signature_scheme=os.environ.get("AAUTH_SIGNATURE_SCHEME", "jwks"),
+            key_state_dir=os.environ.get("AAUTH_KEY_STATE_DIR", "/var/lib/aauth"),
         )

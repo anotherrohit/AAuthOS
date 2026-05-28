@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AAuth Mission Platform — operator console</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root {
+  --bg: #0f172a; --panel: #1e293b; --panel-2: #283449;
+  --text: #e2e8f0; --text-dim: #94a3b8; --text-mute: #64748b;
+  --border: #334155; --accent: #38bdf8; --accent-dim: #0ea5e9;
+  --ok: #22c55e; --warn: #f59e0b; --danger: #ef4444; --info: #818cf8;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; font-family: var(--sans);
+             background: var(--bg); color: var(--text); height: 100%; }
+button { font: inherit; cursor: pointer; }
+input, select, textarea { font: inherit; }
+code, pre { font-family: var(--mono); font-size: 12.5px; }
+a { color: var(--accent); }
+.shell { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+header.top { display: flex; align-items: center; gap: 24px; padding: 0 24px;
+             background: #0b1220; border-bottom: 1px solid var(--border); }
+.brand { font-weight: 600; letter-spacing: -0.01em; }
+.brand .dot { color: var(--accent); }
+.tabs { display: flex; gap: 4px; flex: 1; }
+.tab { padding: 8px 14px; border-radius: 6px; color: var(--text-dim);
+       background: transparent; border: 0; }
+.tab.active { background: var(--panel); color: var(--text); }
+.tab:hover:not(.active) { background: rgba(255,255,255,.04); color: var(--text); }
+.who { color: var(--text-dim); font-size: 13px; }
+.who .name { color: var(--text); font-weight: 500; }
+.who button { margin-left: 12px; padding: 4px 10px; border-radius: 4px;
+              background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+main { padding: 24px; overflow: auto; }
+.page { display: none; } .page.active { display: block; }
+.row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.stat .label { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat .val { font-size: 28px; font-weight: 500; margin-top: 6px; }
+.stat .val.ok { color: var(--ok); } .stat .val.warn { color: var(--warn); }
+.stat .val.danger { color: var(--danger); }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; }
+.panel h2 { margin: 0 0 14px; font-size: 16px; font-weight: 500; display: flex; align-items: center; justify-content: space-between; }
+.panel h2 .actions { display: flex; gap: 8px; }
+.btn { padding: 6px 12px; border-radius: 6px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+.btn:hover { background: #2f3d56; }
+.btn.primary { background: var(--accent-dim); border-color: var(--accent-dim); color: #001017; }
+.btn.primary:hover { background: var(--accent); }
+.btn.danger { color: var(--danger); border-color: rgba(239,68,68,.4); }
+.btn.danger:hover { background: rgba(239,68,68,.1); }
+.btn.small { padding: 3px 8px; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; color: var(--text-dim); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+td { padding: 12px; border-bottom: 1px solid var(--border); font-size: 13.5px; vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: rgba(255,255,255,.02); }
+td.mono, code { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); }
+.id-chip { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); background: var(--panel-2); padding: 2px 6px; border-radius: 4px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11.5px; font-weight: 500; letter-spacing: 0.02em; }
+.badge.active { background: rgba(34,197,94,.15); color: var(--ok); }
+.badge.pending { background: rgba(245,158,11,.15); color: var(--warn); }
+.badge.completed { background: rgba(56,189,248,.15); color: var(--accent); }
+.badge.revoked { background: rgba(239,68,68,.15); color: var(--danger); }
+.badge.failed { background: rgba(239,68,68,.15); color: var(--danger); }
+.dialog-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.dialog { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 24px; width: min(560px, 90vw); max-height: 85vh; overflow: auto; }
+.dialog h2 { margin: 0 0 16px; font-size: 18px; font-weight: 500; }
+.field { margin-bottom: 14px; }
+.field label { display: block; color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.field input, .field select, .field textarea { width: 100%; padding: 8px 10px; border-radius: 6px; background: #0b1220; border: 1px solid var(--border); color: var(--text); }
+.dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.login-bg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at top, #1e293b 0%, #0f172a 70%); }
+.login-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 32px; width: 380px; }
+.login-card h1 { margin: 0 0 4px; font-size: 20px; font-weight: 500; }
+.login-card .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 22px; }
+.login-card .err { background: rgba(239,68,68,.1); color: var(--danger); padding: 8px; border-radius: 6px; font-size: 13px; margin-bottom: 14px; }
+.kv { display: grid; grid-template-columns: 200px 1fr; gap: 8px 16px; font-size: 13.5px; }
+.kv dt { color: var(--text-dim); } .kv dd { margin: 0; color: var(--text); word-break: break-all; }
+.hop { padding: 10px 12px; border-left: 2px solid var(--accent); margin-bottom: 8px; background: rgba(56,189,248,.05); border-radius: 0 6px 6px 0; }
+.hop .from-to { font-family: var(--mono); font-size: 12.5px; }
+.hop .act { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+.event { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.event:last-child { border-bottom: 0; }
+.event .time { color: var(--text-mute); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; padding-top: 2px; min-width: 80px; }
+.event .kind { color: var(--info); font-size: 12px; min-width: 130px; font-weight: 500; }
+.event .body { font-size: 13px; color: var(--text); }
+.bootstrap-reveal { background: #1a2436; border: 1px solid var(--border); padding: 14px; border-radius: 8px; font-family: var(--mono); font-size: 13px; word-break: break-all; margin: 12px 0; }
+.bootstrap-reveal .warn { color: var(--warn); font-family: var(--sans); font-size: 12px; margin-bottom: 8px; }
+.empty { color: var(--text-dim); text-align: center; padding: 32px; font-style: italic; }
+.demo-grid { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 16px; align-items: start; }
+.demo-form .field:last-child { margin-bottom: 0; }
+.demo-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.run-log { background: #0b1220; border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-height: 160px; max-height: 460px; overflow: auto; font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); }
+.run-log .line { padding: 3px 0; white-space: pre-wrap; word-break: break-word; }
+.run-log .ok { color: var(--ok); } .run-log .warn { color: var(--warn); } .run-log .err { color: var(--danger); }
+.demo-result { margin-top: 12px; display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; font-size: 13px; }
+.demo-result .key { color: var(--text-dim); }
+.demo-result .val { font-family: var(--mono); color: var(--text); word-break: break-all; }
+@media (max-width: 980px) {
+  .demo-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div id="login" class="login-bg" style="display:none">
+  <form class="login-card" onsubmit="return doLogin(event)">
+    <h1>AAuth Mission Platform <span style="color:var(--accent)">·</span> operator console</h1>
+    <p class="sub">Sign in with your operator credentials.</p>
+    <div id="login-err" class="err" style="display:none"></div>
+    <div class="field"><label>Username</label><input id="u" autocomplete="username" required autofocus></div>
+    <div class="field"><label>Password</label><input id="p" type="password" autocomplete="current-password" required></div>
+    <div class="actions"><button class="btn primary" type="submit">Sign in</button></div>
+    <div style="margin-top:18px;color:var(--text-mute);font-size:12px">
+      Demo defaults: <code>operator</code> / <code>aauth-operator-demo</code>.
+      Override via <code>OPERATOR_USERNAME</code> / <code>OPERATOR_PASSWORD</code> on the platform services.
+    </div>
+  </form>
+</div>
+
+<div id="app" class="shell" style="display:none">
+  <header class="top">
+    <div class="brand">AAuth Mission Platform <span class="dot">·</span> operator</div>
+    <div class="tabs">
+      <button class="tab active" data-page="dashboard">Dashboard</button>
+      <button class="tab" data-page="demo">Demo</button>
+      <button class="tab" data-page="agents">Agents</button>
+      <button class="tab" data-page="missions">Missions</button>
+      <button class="tab" data-page="tokens">Tokens</button>
+      <button class="tab" data-page="gateway">Gateway &amp; IDP</button>
+      <button class="tab" data-page="audit">Audit</button>
+    </div>
+    <div class="who"><span id="whoami" class="name"></span>
+      <button onclick="signOut()">Sign out</button></div>
+  </header>
+
+  <main>
+    <section id="page-dashboard" class="page active">
+      <div class="row">
+        <div class="stat"><div class="label">Active agents</div><div class="val ok" id="s-agents-active">—</div></div>
+        <div class="stat"><div class="label">Pending agents</div><div class="val warn" id="s-agents-pending">—</div></div>
+        <div class="stat"><div class="label">Active missions</div><div class="val" id="s-missions-active">—</div></div>
+        <div class="stat"><div class="label">Tokens issued</div><div class="val" id="s-tokens-total">—</div></div>
+      </div>
+      <div class="panel">
+        <h2>Recent activity <span class="actions"><button class="btn small" onclick="loadDashboard()">Refresh</button></span></h2>
+        <div id="dash-feed"></div>
+      </div>
+    </section>
+ <section id="page-demo" class="page">
+      <div class="demo-grid">
+        <div class="panel demo-form">
+          <h2>Run demo mission</h2>
+          <div class="field"><label>Backend URL</label>
+            <input id="demo-backend-url" value="http://127.0.0.1:8000"></div>
+          <div class="field"><label>User subject</label>
+            <input id="demo-user" value="demo-user"></div>
+          <div class="field"><label>SKU</label>
+            <input id="demo-sku" value="WIDGET-1"></div>
+          <div class="field"><label>Region</label>
+            <input id="demo-region" value="us-east"></div>
+          <div class="field"><label>Prompt</label>
+            <textarea id="demo-prompt" rows="3">optimize supply chain for the operator console demo</textarea>
+          </div>
+          <div class="field"><label>Poll timeout (seconds)</label>
+            <input id="demo-timeout" type="number" min="5" max="120" value="45"></div>
+          <div class="field" style="display:flex;align-items:center;gap:8px;margin-top:6px">
+            <input id="demo-track-mission" type="checkbox" checked style="width:auto">
+            <label for="demo-track-mission" style="display:inline;margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text-dim)">
+              Create a mission ledger entry and seed backend to supply-chain hop
+            </label>
+          </div>
+          <div class="demo-actions">
+            <button id="demo-run-btn" class="btn primary" onclick="runDemoMission()">Run 07 demo</button>
+            <button class="btn" onclick="resetDemoOutput()">Clear</button>
+            <button class="btn" onclick="loadDemo()">Refresh refs</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Demo run output
+            <span class="actions">
+              <button class="btn small" onclick="openDemoMission()">Open mission</button>
+              <button class="btn small" onclick="loadDemo()">Refresh audit</button>
+            </span>
+          </h2>
+          <div id="demo-log" class="run-log"></div>
+          <div id="demo-result" class="demo-result" style="display:none"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Mission/audit feed <span class="actions"><button class="btn small" onclick="loadDemo()">Refresh</button></span></h2>
+        <div id="demo-feed"></div>
+      </div>
+    </section>
+
+      <section id="page-agents" class="page">
+      <div class="panel">
+        <h2>Registered agents
+          <span class="actions">
+            <button class="btn small" onclick="loadAgents()">Refresh</button>
+            <button class="btn small primary" onclick="openRegisterDialog()">+ Register agent</button>
+          </span>
+        </h2>
+        <table>
+          <thead><tr><th>Name</th><th>Agent ID URL</th><th>State</th><th>Owning team</th>
+              <th>Allowed downstreams</th><th>Thumbprint</th><th></th></tr></thead>
+          <tbody id="agents-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="page-missions" class="page">
+      <div class="panel">
+        <h2>Missions
+          <span class="actions">
+            <select id="mission-state-filter" onchange="loadMissions()" class="btn small">
+              <option value="">All states</option><option value="active">Active</option>
+              <option value="completed">Completed</option><option value="failed">Failed</option>
+              <option value="revoked">Revoked</option>
+            </select>
+            <button class="btn small" onclick="loadMissions()">Refresh</button>
+            <button class="btn small primary" onclick="openIssueMissionDialog()">+ Issue mission</button>
+          </span>
+        </h2>
+        <table>
+          <thead><tr><th>Mission ID</th><th>User</th><th>Originator</th><th>Scope</th>
+              <th>State</th><th>Created</th><th></th></tr></thead>
+          <tbody id="missions-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="page-tokens" class="page">
+      <div class="panel">
+        <h2>Token ledger
+          <span class="actions">
+            <select id="token-revoked-filter" onchange="loadTokens()" class="btn small">
+              <option value="">All tokens</option><option value="false">Active only</option><option value="true">Revoked only</option>
+            </select>
+            <button class="btn small" onclick="loadTokens()">Refresh</button>
+          </span>
+        </h2>
+        <p style="margin:0 0 12px;color:var(--text-mute);font-size:13px">
+          Every RFC 8693 token-exchange issuance is logged here. Revoking a mission marks all its tokens revoked;
+          agentgateway enforces deny within ~5s.</p>
+        <table>
+          <thead><tr><th>jti</th><th>Subject (caller)</th><th>Audience</th><th>act chain</th>
+              <th>Mission</th><th>Expires</th><th>Status</th></tr></thead>
+          <tbody id="tokens-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="page-gateway" class="page">
+      <div class="panel">
+        <h2>IDP configuration <span class="actions"><button class="btn small" onclick="loadGateway()">Refresh</button></span></h2>
+        <dl class="kv" id="idp-kv"></dl>
+      </div>
+      <div class="panel">
+        <h2>agentgateway policy (rendered from registry)</h2>
+        <pre id="policy-pre" style="background:#0b1220;padding:14px;border-radius:6px;overflow:auto;max-height:480px;margin:0">Loading…</pre>
+      </div>
+    </section>
+
+    <section id="page-audit" class="page">
+      <div class="panel">
+        <h2>Audit feed <span class="actions"><button class="btn small" onclick="loadAudit()">Refresh</button></span></h2>
+        <div id="audit-feed"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="dlg-register" class="dialog-bg" style="display:none" onclick="if(event.target===this)closeDialog('dlg-register')">
+  <form class="dialog" onsubmit="return submitRegister(event)">
+    <h2>Register agent</h2>
+    <div class="field"><label>Display name</label>
+      <input id="reg-name" required pattern="[a-z0-9-]+" placeholder="supply-chain"></div>
+    <div class="field"><label>Owning team</label><input id="reg-team" required placeholder="commerce"></div>
+    <div class="field"><label>Owner contact</label><input id="reg-contact" placeholder="optional"></div>
+    <div class="field"><label>Allowed downstream agents (comma-separated, must exist)</label>
+      <input id="reg-downstreams" placeholder="market-analysis"></div>
+    <div class="field"><label>Max delegation depth</label>
+      <input id="reg-depth" type="number" min="1" max="10" value="3"></div>
+    <div class="actions">
+      <button type="button" class="btn" onclick="closeDialog('dlg-register')">Cancel</button>
+      <button type="submit" class="btn primary">Register</button>
+    </div>
+  </form>
+</div>
+
+<div id="dlg-bootstrap" class="dialog-bg" style="display:none" onclick="if(event.target===this)closeDialog('dlg-bootstrap')">
+  <div class="dialog">
+    <h2>Bootstrap token issued</h2>
+    <p style="color:var(--text-dim);font-size:13px;margin:0 0 8px">
+      Hand this to the developer running the agent. <strong>You will not see it again.</strong></p>
+    <div class="bootstrap-reveal">
+      <div class="warn">⚠ One-time secret — copy now, never logged or recoverable.</div>
+      <div><strong>agent_id_url:</strong> <span id="bs-id"></span></div>
+      <div style="margin-top:8px"><strong>bootstrap_token:</strong> <span id="bs-token"></span></div>
+      <div style="margin-top:8px;font-size:11.5px;color:var(--text-mute)">expires at <span id="bs-exp"></span></div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="copyBootstrap()">Copy token</button>
+      <button class="btn primary" onclick="closeDialog('dlg-bootstrap')">Done</button>
+    </div>
+  </div>
+</div>
+
+<div id="dlg-issue-mission" class="dialog-bg" style="display:none" onclick="if(event.target===this)closeDialog('dlg-issue-mission')">
+  <form class="dialog" onsubmit="return submitIssueMission(event)">
+    <h2>Issue mission</h2>
+    <p style="color:var(--text-dim);font-size:13px;margin:0 0 14px">
+      Create a mission on behalf of any registered agent. Useful for testing, demos, or scheduled
+      workflows without a human user driving them. The mission goes through the same state machine,
+      ledger, and revocation as user-initiated missions; it's tagged <code>issued_by_operator</code>
+      in metadata so you can tell them apart.
+    </p>
+    <div class="field"><label>Originator agent</label>
+      <select id="iss-originator" required>
+        <option value="">Loading registered agents…</option>
+      </select>
+    </div>
+    <div class="field"><label>Scope (free-text label)</label>
+      <input id="iss-scope" required placeholder="supply-chain-optimize"></div>
+    <div class="field"><label>User subject (who's the mission "on behalf of")</label>
+      <input id="iss-user" placeholder="operator-issued">
+    </div>
+    <div class="field"><label>TTL (seconds)</label>
+      <input id="iss-ttl" type="number" min="30" max="86400" value="600"></div>
+    <div class="field"><label>Metadata (JSON, optional)</label>
+      <textarea id="iss-meta" rows="3" placeholder='{"reason": "demo run", "ticket": "AUTH-123"}'></textarea>
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;margin-top:6px">
+      <input id="iss-seed-hop" type="checkbox" style="width:auto">
+      <label for="iss-seed-hop" style="display:inline;margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text-dim)">
+        Seed a first hop from the originator (so the mission shows up in the audit feed immediately)
+      </label>
+    </div>
+    <div class="field" id="iss-seed-target-field" style="display:none">
+      <label>Seed hop target (downstream agent)</label>
+      <select id="iss-seed-target"></select>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn" onclick="closeDialog('dlg-issue-mission')">Cancel</button>
+      <button type="submit" class="btn primary">Issue mission</button>
+    </div>
+  </form>
+</div>
+
+<div id="dlg-mission" class="dialog-bg" style="display:none" onclick="if(event.target===this)closeDialog('dlg-mission')">
+  <div class="dialog" style="width:min(780px,90vw)">
+    <h2>Mission detail</h2>
+    <dl class="kv" id="mission-detail-kv"></dl>
+    <h3 style="margin:16px 0 8px;font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em">Hops</h3>
+    <div id="mission-hops"></div>
+    <h3 style="margin:16px 0 8px;font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em">Tokens issued</h3>
+    <div id="mission-tokens"></div>
+    <div class="actions">
+      <button class="btn danger" id="dlg-mission-revoke">Revoke mission</button>
+      <button class="btn" onclick="closeDialog('dlg-mission')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="./app.js"></script>
+</body>
+</html>

@@ -9,10 +9,12 @@ CLUSTER_NAME="${CLUSTER_NAME:-aauth-demo}"
 echo "==> [03] Building platform images"
 docker build -t aauth/registry-service:dev "${ROOT}/platform/registry-service"
 docker build -t aauth/mission-service:dev  "${ROOT}/platform/mission-service"
+docker build -t aauth/operator-console:dev "${ROOT}/platform/operator-console"
 
 echo "==> Loading images into KIND"
 kind load docker-image aauth/registry-service:dev --name "${CLUSTER_NAME}"
 kind load docker-image aauth/mission-service:dev  --name "${CLUSTER_NAME}"
+kind load docker-image aauth/operator-console:dev --name "${CLUSTER_NAME}"
 
 echo "==> Applying platform manifests"
 kubectl apply -f "${ROOT}/manifests/platform/"
@@ -20,6 +22,7 @@ kubectl apply -f "${ROOT}/manifests/platform/"
 echo "==> Waiting for platform services"
 kubectl -n "${NS}" rollout status deploy/registry-service --timeout=180s
 kubectl -n "${NS}" rollout status deploy/mission-service  --timeout=180s
+kubectl -n "${NS}" rollout status deploy/operator-console --timeout=120s
 
 # Confirm the platform-config ConfigMap from step 01/02 is mounted.
 kubectl -n "${NS}" exec deploy/registry-service -- env | grep -E '^IDP_' || {
@@ -30,3 +33,4 @@ kubectl -n "${NS}" exec deploy/registry-service -- env | grep -E '^IDP_' || {
 echo "==> Platform up. Next: scripts/04-deploy-agentgateway.sh"
 echo "    registry-service: http://localhost:9000"
 echo "    mission-service:  http://localhost:9001"
+echo "    operator console: http://localhost:9002  (login: operator / aauth-operator-demo)"

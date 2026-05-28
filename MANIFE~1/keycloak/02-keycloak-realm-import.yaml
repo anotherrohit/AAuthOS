@@ -30,6 +30,7 @@ data:
           "publicClient": true,
           "standardFlowEnabled": true,
           "consentRequired": true,
+          "consentScreenText": "Allow agents to act on your behalf",
           "redirectUris": ["http://localhost:3000/*"],
           "webOrigins": ["http://localhost:3000"]
         },
