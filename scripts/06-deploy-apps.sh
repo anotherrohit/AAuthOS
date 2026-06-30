@@ -26,6 +26,29 @@ fi
 echo "==> Applying aauth_sdk patches to upstream"
 python3 "${PATCHER}" "${WORK}/aauth-full-demo"
 
+echo "==> Normalizing upstream Python constraints for local aauth-sdk"
+python3 - "${WORK}/aauth-full-demo" <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+for subdir in ("backend", "supply-chain-agent", "market-analysis-agent"):
+    pyproject = root / subdir / "pyproject.toml"
+    if not pyproject.exists():
+        continue
+    text = pyproject.read_text(encoding="utf-8")
+    next_text = text
+    if 'requires-python = ">=3.10, <3.13"' in next_text:
+        next_text = next_text.replace(
+            'requires-python = ">=3.10, <3.13"',
+            'requires-python = ">=3.12, <3.13"',
+        )
+    if next_text != text:
+        pyproject.write_text(next_text, encoding="utf-8")
+        print(f"    patched {pyproject}")
+PY
 # Stage the SDK into every agent dir so the agent's Dockerfile build context
 # includes it. We extend each Dockerfile with two lines: COPY + pip install.
 stage_sdk_for() {
@@ -80,6 +103,13 @@ done
 
 echo "==> Applying workload manifests"
 kubectl apply -f "${ROOT}/manifests/workloads/"
+
+echo "==> Restarting workloads to pick up freshly loaded :dev images"
+kubectl -n "${APPS_NS:-apps}" rollout restart \
+  deploy/backend \
+  deploy/supply-chain-agent \
+  deploy/market-analysis-agent \
+  deploy/supply-chain-ui
 
 echo "==> Waiting for workloads"
 for dep in backend supply-chain-agent market-analysis-agent supply-chain-ui; do

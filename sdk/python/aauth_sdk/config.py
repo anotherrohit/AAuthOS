@@ -35,10 +35,10 @@ class AgentConfig:
     jwks_path: str = "/jwks.json"
     metadata_path: str = "/.well-known/aauth-agent"
 
-    # Where the SDK persists keys across restarts (a Secret-backed volume
-    # mount in K8s, or /tmp/aauth-keys for local dev). The SDK never logs
-    # private keys.
-    key_state_dir: str = "/var/lib/aauth"
+   # Where the SDK persists keys across restarts. Demo containers run as a
+    # non-root user, so default to a writable temp path unless K8s overrides it
+    # with a Secret/PVC-backed mount.
+    key_state_dir: str = "/tmp/aauth"
 
     @classmethod
     def from_env(cls) -> "AgentConfig":
@@ -59,5 +59,5 @@ class AgentConfig:
             idp_jwks_url=req("IDP_JWKS_URL"),
             idp_flavor=os.environ.get("IDP_FLAVOR", "radiantlogic"),
             signature_scheme=os.environ.get("AAUTH_SIGNATURE_SCHEME", "jwks"),
-            key_state_dir=os.environ.get("AAUTH_KEY_STATE_DIR", "/var/lib/aauth"),
+            key_state_dir=os.environ.get("AAUTH_KEY_STATE_DIR", "/tmp/aauth"),
         )

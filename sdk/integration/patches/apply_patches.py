@@ -67,10 +67,10 @@ BOOT_BLOCK_TEMPLATE = dedent(
 APP_WIRING_TEMPLATE = dedent(
     '''
     # ---- aauth_sdk app wiring (added by apply_patches.py) ----
-    app.add_middleware(MissionMiddleware)
-    agent.mount_endpoints(app)
+    {app_var}.add_middleware(MissionMiddleware)
+    agent.mount_endpoints({app_var})
 
-    @app.on_event("startup")
+    @{app_var}.on_event("startup")
     async def _aauth_boot() -> None:
         await agent.enroll()
     # ----------------------------------------------------------
@@ -80,88 +80,72 @@ APP_WIRING_TEMPLATE = dedent(
 
 # ---------- helpers --------------------------------------------------------- #
 
-def _insert_after_imports(src: str, block: str) -> str:
-    """Insert `block` after the import block at the top of the file."""
-    if block in src:
-        return src
-    lines = src.splitlines()
-    last_import_line = 0
-    for i, line in enumerate(lines[:120]):  # only look near the top
-        if re.match(r"^(from\s+\S+\s+import\s+|import\s+\S+)", line):
-            last_import_line = i
-    inject_at = last_import_line + 1
-    return "\n".join(lines[:inject_at] + [""] + block.splitlines() + [""] + lines[inject_at:])
+def _strip_app_wiring(src: str) -> str:
+    """Remove previous app-wiring blocks, including the old unindented variant."""
+    start_marker = "# ---- aauth_sdk app wiring (added by apply_patches.py) ----"
+    end_marker = "# ----------------------------------------------------------"
+    while start_marker in src:
+        start = src.find(start_marker)
+        line_start = src.rfind("\n", 0, start) + 1
+        end = src.find(end_marker, start)
+        if end < 0:
+            break
+        line_end = src.find("\n", end)
+        if line_end < 0:
+            line_end = len(src)
+        src = src[:line_start] + src[line_end + 1 :]
+    return src
 
 
-"""def _insert_after_app_construct(src: str, block: str) -> str:
-    ""Insert `block` after the first `app = FastAPI(...)` line.""
-    if block in src:
-        return src
-    pattern = re.compile(r"^app\s*=\s*FastAPI\s*\(.*?\)\s*$", re.MULTILINE | re.DOTALL)
-    m = pattern.search(src)
-    if not m:
-        # Fallback: look for `app = FastAPI(` and find the matching `)`.
-        idx = src.find("app = FastAPI(")
-        if idx < 0:
-            raise RuntimeError("could not find `app = FastAPI(...)` to anchor wiring")
-        depth = 0
-        end = idx
-        for i in range(idx, len(src)):
-            if src[i] == "(":
-                depth += 1
-            elif src[i] == ")":
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
-        return src[:end] + "\n\n" + block + "\n" + src[end:]
-    return src[: m.end()] + "\n\n" + block + "\n" + src[m.end():]"""
+def _indent_block(block: str, indent: str) -> str:
+    return "\n".join((indent + line) if line else "" for line in block.splitlines())
 
-def _insert_after_app_construct(src: str, block: str) -> str:
-    """Insert `block` after the ASGI/FastAPI application initialization anchor."""
-    if block in src:
-        return src
 
-    # Target lines like: app = FastAPI(...), app = server.build(), app = Starlette(...)
-    anchors = ["= FastAPI(", "= server.build(", "= Starlette("]
-    idx = -1
-    matched_anchor = ""
-    
-    # Normalize spaces inside the search array to ensure we catch minor formatting variations
-    normalized_src = src.replace(" ", "")
-    
-    for anchor in anchors:
-        norm_anchor = anchor.replace(" ", "")
-        if norm_anchor in normalized_src:
-            # Find where it actually sits in the original source code string
-            # We look for the variable assignment leading to the constructor
-            import re
-            match = re.search(r"app\s*=\s*" + re.escape(anchor.split("=")[1].strip()), src)
-            if match:
-                idx = match.start()
-                matched_anchor = anchor
-                break
-
-    if idx < 0:
-        raise RuntimeError("could not find an application initialization anchor (`app = ...`) to hook wiring")
-
-    # Find the end of the statement line or its closing parenthesis bounds
+def _find_call_end(src: str, open_paren: int) -> int:
     depth = 0
-    end = idx
-    for i in range(idx, len(src)):
-        if src[i] == "(":
+    in_string: str | None = None
+    escaped = False
+    for i in range(open_paren, len(src)):
+        ch = src[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == in_string:
+                in_string = None
+            continue
+        if ch in ("'", '"'):
+            in_string = ch
+        elif ch == "(":
             depth += 1
-        elif src[i] == ")":
+        elif ch == ")":
             depth -= 1
             if depth == 0:
-                end = i + 1
-                break
-        elif src[i] == "\n" and depth == 0:
-            # If it's a direct function call without long wrapped tuples, break at the newline
-            end = i
-            break
-            
-    return src[:end] + "\n\n" + block + "\n" + src[end:]
+                return i + 1
+    raise RuntimeError("could not find closing ')' for FastAPI(...)")
+
+def _insert_after_app_construct(src: str, block: str) -> str:
+    """Insert `block` after the first FastAPI construction, preserving scope."""
+    src = _strip_app_wiring(src)
+    pattern = re.compile(
+        r"^(?P<indent>[ \t]*)(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*FastAPI\s*\(",
+        re.MULTILINE,
+    )
+    m = pattern.search(src)
+    if not m:
+        raise RuntimeError("could not find `<name> = FastAPI(...)` to anchor wiring")
+
+    open_paren = src.find("(", m.start())
+    end = _find_call_end(src, open_paren)
+    line_end = src.find("\n", end)
+    if line_end < 0:
+        line_end = end
+
+    rendered = block.format(app_var=m.group("var"))
+    rendered = _indent_block(rendered, m.group("indent"))
+    return src[:line_end] + "\n\n" + rendered + src[line_end:]
+
 
 def patch_file(path: Path, *, add_boot: bool, add_app_wiring: bool) -> None:
     if not path.exists():
@@ -186,6 +170,13 @@ def replace_interceptor(path: Path) -> None:
         return
     path.write_text(STUB_INTERCEPTOR)
     print(f"[stubbed] {path}")
+  
+def patch_first_existing(paths: list[Path], *, add_boot: bool, add_app_wiring: bool) -> None:
+    for path in paths:
+        if path.exists():
+            patch_file(path, add_boot=add_boot, add_app_wiring=add_app_wiring)
+            return
+    print(f"[skip] none of these entrypoints exist: {', '.join(str(p) for p in paths)}")
 
 
 # ---------- main ------------------------------------------------------------ #
@@ -203,15 +194,21 @@ def main(repo_root: Path) -> int:
     replace_interceptor(repo_root / "backend" / "app" / "services" / "aauth_interceptor.py")
 
     # Supply chain agent
-    patch_file(
-        repo_root / "supply-chain-agent" / "__main__.py",
+   patch_first_existing(
+        [
+            repo_root / "supply-chain-agent" / "__main__.py",
+            repo_root / "supply-chain-agent" / "_main_.py",
+        ],
         add_boot=True, add_app_wiring=True,
     )
     replace_interceptor(repo_root / "supply-chain-agent" / "aauth_interceptor.py")
 
     # Market analysis agent
-    patch_file(
-        repo_root / "market-analysis-agent" / "__main__.py",
+    patch_first_existing(
+        [
+            repo_root / "market-analysis-agent" / "__main__.py",
+            repo_root / "market-analysis-agent" / "_main_.py",
+        ],
         add_boot=True, add_app_wiring=True,
     )
     replace_interceptor(repo_root / "market-analysis-agent" / "aauth_interceptor.py")
