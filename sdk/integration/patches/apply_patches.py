@@ -77,8 +77,42 @@ APP_WIRING_TEMPLATE = dedent(
     '''
 ).strip("\n")
 
+PORT_ENV_HELPER_TEMPLATE = dedent(
+    '''
+    # ---- aauth_sdk env helpers (added by apply_patches.py) ----
+    def _aauth_port_env(name: str, default: str) -> int:
+        raw = os.getenv(name, default)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            tail = str(raw).rsplit(":", 1)[-1].split("/", 1)[0]
+            try:
+                return int(tail)
+            except ValueError:
+                return int(default)
+    # -----------------------------------------------------------
+    '''
+).strip("\n")
 
 # ---------- helpers --------------------------------------------------------- #
+
+def _insert_after_imports(src: str, block: str) -> str:
+    """Insert `block` after the import block at the top of the file."""
+    if block in src:
+        return src
+    marker = next((line.strip() for line in block.splitlines() if line.strip().startswith("# ----")), None)
+    if marker and marker in src:
+        return src
+      
+    lines = src.splitlines()
+    last_import_line = 0
+    for i, line in enumerate(lines[:120]):  # only look near the top
+        if re.match(r"^(from\s+\S+\s+import\s+|import\s+\S+)", line):
+            last_import_line = i
+    inject_at = last_import_line + 1
+    return "\n".join(lines[:inject_at] + [""] + block.splitlines() + [""] + lines[inject_at:])
+
+
 
 def _strip_app_wiring(src: str) -> str:
     """Remove previous app-wiring blocks, including the old unindented variant."""
@@ -126,15 +160,25 @@ def _find_call_end(src: str, open_paren: int) -> int:
     raise RuntimeError("could not find closing ')' for FastAPI(...)")
 
 def _insert_after_app_construct(src: str, block: str) -> str:
-    """Insert `block` after the first FastAPI construction, preserving scope."""
+    """Insert `block` after app construction, preserving scope."""
     src = _strip_app_wiring(src)
-    pattern = re.compile(
-        r"^(?P<indent>[ \t]*)(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*FastAPI\s*\(",
-        re.MULTILINE,
-    )
-    m = pattern.search(src)
+    patterns = [
+        re.compile(
+            r"^(?P<indent>[ \t]*)(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*FastAPI\s*\(",
+            re.MULTILINE,
+        ),
+        re.compile(
+            r"^(?P<indent>[ \t]*)(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*[A-Za-z_][A-Za-z0-9_]*\.build\s*\(",
+            re.MULTILINE,
+        ),
+    ]
+    m = None
+    for pattern in patterns:
+        m = pattern.search(src)
+        if m:
+            break
     if not m:
-        raise RuntimeError("could not find `<name> = FastAPI(...)` to anchor wiring")
+        raise RuntimeError("could not find app construction to anchor wiring")
 
     open_paren = src.find("(", m.start())
     end = _find_call_end(src, open_paren)
@@ -146,7 +190,15 @@ def _insert_after_app_construct(src: str, block: str) -> str:
     rendered = _indent_block(rendered, m.group("indent"))
     return src[:line_end] + "\n\n" + rendered + src[line_end:]
 
-
+def _patch_port_env_reads(src: str) -> str:
+    pattern = re.compile(
+        r'int\(os\.getenv\(("(?P<name>[A-Z0-9_]*PORT)",\s*"(?P<default>\d+)")\)\)'
+    )
+    patched = pattern.sub(r'_aauth_port_env("\g<name>", "\g<default>")', src)
+    if patched != src and "_aauth_port_env(" not in src:
+        patched = _insert_after_imports(patched, PORT_ENV_HELPER_TEMPLATE)
+    return patched
+  
 def patch_file(path: Path, *, add_boot: bool, add_app_wiring: bool) -> None:
     if not path.exists():
         print(f"[skip] {path} does not exist (upstream layout may have changed)")

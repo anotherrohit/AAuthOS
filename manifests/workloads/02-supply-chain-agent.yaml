@@ -5,12 +5,13 @@ metadata:
   namespace: apps
   labels: { app: supply-chain-agent, aauth.io/registered: "true" }
 spec:
-  replicas: 1
+   replicas: 1
   selector: { matchLabels: { app: supply-chain-agent } }
   template:
     metadata:
       labels: { app: supply-chain-agent, aauth.io/registered: "true" }
     spec:
+     enableServiceLinks: false
       containers:
         - name: supply-chain-agent
           image: aauth/supply-chain-agent:dev

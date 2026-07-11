@@ -69,6 +69,46 @@ stage_sdk_for() {
     ' "${df}" > "${df}.new" && mv "${df}.new" "${df}"
     echo "    patched ${df}"
   fi
+  case "${subdir}" in
+    backend)
+      python3 - "${df}" <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+next_text = text.replace(
+    'CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]',
+    'CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]',
+)
+if next_text != text:
+    path.write_text(next_text, encoding="utf-8")
+    print(f"    normalized runtime CMD in {path}")
+PY
+      ;;
+    supply-chain-agent|market-analysis-agent)
+      python3 - "${df}" <<'PY'
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+next_text = re.sub(
+    r'CMD \["uv", "run", "\.", "--host", "0\.0\.0\.0", "--port", "\d+"\]',
+    'CMD ["python", "__main__.py"]',
+    text,
+)
+if next_text != text:
+    path.write_text(next_text, encoding="utf-8")
+    print(f"    normalized runtime CMD in {path}")
+PY
+      ;;
+  esac
 }
 
 stage_sdk_for "backend"

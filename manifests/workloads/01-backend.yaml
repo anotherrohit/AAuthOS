@@ -10,6 +10,7 @@ spec:
   template:
     metadata:
       labels: { app: backend, aauth.io/registered: "true" }
+        enableServiceLinks: false
     spec:
       containers:
         - name: backend
@@ -32,6 +33,10 @@ spec:
               value: https://agentgateway.gateway.svc.cluster.local:8443
             - name: SUPPLY_CHAIN_AGENT_ID_URL
               value: https://platform.aauth.local/agents/supply-chain
+           - name: SUPPLY_CHAIN_AGENT_URL
+              value: http://supply-chain-agent.apps.svc.cluster.local:9999
+            - name: SUPPLY_CHAIN_AGENT_PORT
+              value: "9999"
             - name: AAUTH_SIGNATURE_SCHEME
               value: jwks
             -  name: AAUTH_KEY_STATE_DIR

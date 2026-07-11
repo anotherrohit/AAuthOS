@@ -30,6 +30,8 @@ spec:
               value: http://mission-service.platform.svc.cluster.local:9001
             - name: AAUTH_GATEWAY_URL
               value: https://agentgateway.gateway.svc.cluster.local:8443
+           - name: MARKET_ANALYSIS_AGENT_PORT
+              value: "9998"
             - name: AAUTH_SIGNATURE_SCHEME
               value: jwks
             - name: AAUTH_KEY_STATE_DIR
