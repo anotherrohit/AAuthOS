@@ -100,6 +100,10 @@ def _insert_after_imports(src: str, block: str) -> str:
     """Insert `block` after the import block at the top of the file."""
     if block in src:
         return src
+    marker = next((line.strip() for line in block.splitlines() if line.strip().startswith("# ----")), None)
+    if marker and marker in src:
+        return src
+      
     lines = src.splitlines()
     last_import_line = 0
     for i, line in enumerate(lines[:120]):  # only look near the top
